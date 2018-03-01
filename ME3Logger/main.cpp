@@ -4,6 +4,8 @@
 #pragma pack(1)
 
 FILE* Log;
+fpos_t pos;
+bool truncateMessagePosted = false;
 
 struct ErrorClass
 {
@@ -17,14 +19,22 @@ void __cdecl LogPrintf(ErrorClass* error, wchar_t* pFormat, ...)
 {
 	// Prepend status of the unknown error class:
 	//fprintf(Log, "[%s, %s] ", error->unknA ? "true" : "false", error->unknB ? "true" : "false");
+	fgetpos(Log, &pos);
+	if (pos < 16000) {
+		va_list args;
+		va_start(args, pFormat);
 
-	va_list args;
-	va_start(args, pFormat);
-	vfwprintf(Log, pFormat, args);
-	va_end(args);
+		vfwprintf(Log, pFormat, args);
 
-	fprintf(Log, "\n");
-	fflush(Log);
+		va_end(args);
+		fprintf(Log, "\n");
+		fflush(Log);
+	}
+	else if (!truncateMessagePosted) {
+		fprintf(Log, " ... Log truncated ...");
+		fflush(Log);
+		truncateMessagePosted = true;
+	}
 }
 
 int return_addr_one = 0;
@@ -32,7 +42,7 @@ int return_addr_two = 0;
 int return_addr_three = 0;
 
 // inline asm version, needed to get stack frame:
-void __declspec(naked) LogPrintf_ASM(void)
+/*void __declspec(naked) LogPrintf_ASM(void)
 {
 	__asm
 	{
@@ -62,7 +72,7 @@ void __declspec(naked) LogPrintf_ASM(void)
 
 	}
 
-	fprintf(Log, " | Stacktrace: ME3Logger <- [%#x] <- [%#x] <- [%#x] \n", 
+	fprintf(Log, " | Stacktrace: ME3Logger <- [%#x] <- [%#x] <- [%#x] \n",
 		return_addr_one, return_addr_two, return_addr_three);			// print and flush
 	fflush(Log);
 
@@ -71,7 +81,7 @@ void __declspec(naked) LogPrintf_ASM(void)
 		pop ebp
 		retn
 	}
-}
+}*/
 
 void DetourPrintFunction()
 {
@@ -81,7 +91,7 @@ void DetourPrintFunction()
 	VirtualProtect(BioDiagnosticPrintf, 0x5, PAGE_READWRITE, &OriginalProtection);
 
 	// calculate relative jump offset
-	DWORD JmpOffset = (DWORD)((DWORD)LogPrintf_ASM - (DWORD)BioDiagnosticPrintf) - 5;
+	DWORD JmpOffset = (DWORD)((DWORD)LogPrintf - (DWORD)BioDiagnosticPrintf) - 5;
 
 	*BioDiagnosticPrintf = 0xE9;					// write the long relative jmp
 	memcpy(BioDiagnosticPrintf + 1, &JmpOffset, 4); // copy the destination adress
